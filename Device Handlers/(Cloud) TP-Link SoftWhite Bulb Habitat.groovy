@@ -24,7 +24,7 @@ primarily various users on GitHub.com.
 ========================================================*/
 
 metadata {
-	definition (name: "((Cloud) TP-Link SoftWhite Bulb",
+	definition (name: "(Cloud) TP-Link SoftWhite Bulb",
 				namespace: "davegut",
 				author: "Dave Gutheinz") {
 		capability "Switch"
