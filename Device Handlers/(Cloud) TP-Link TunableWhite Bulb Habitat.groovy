@@ -24,7 +24,7 @@ primarily various users on GitHub.com.
 ========================================================*/
 
 metadata {
-	definition (name: "((Cloud) TP-Link TunableWhite Bulb",
+	definition (name: "(Cloud) TP-Link TunableWhite Bulb",
 				namespace: "davegut",
 				author: "Dave Gutheinz") {
 		capability "Switch"
