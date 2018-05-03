@@ -180,15 +180,15 @@ def addDevices() {
 	//	Dimming Plug Devices
 	tpLinkModel << ["HS220" : "(Cloud) TP-Link Dimming Switch"]			//	HS220
 	//	Energy Monitor Plugs
-	tpLinkModel << ["HS110" : "(Cloud) TP-Link EnergyMonitor Plug"]		//	HS110
-	tpLinkModel << ["HS115" : "(Cloud) TP-Link EnergyMonitor Plug"]		//	HS110
+	tpLinkModel << ["HS110" : "(Cloud) TP-Link Plug-Switch"]			//	HS110
+	tpLinkModel << ["HS115" : "(Cloud) TP-Link Plug-Switch"]			//	HS110
 	//	Soft White Bulbs
 	tpLinkModel << ["KB100" : "(Cloud) TP-Link SoftWhite Bulb"]			//	KB100
 	tpLinkModel << ["LB100" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB100
 	tpLinkModel << ["LB110" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB110
 	tpLinkModel << ["LB200" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB200
 	//	Tunable White Bulbs
-	tpLinkModel << ["LB120" : "(Cloud) TP-Link TunableWhite Bulb"]		//	LB120
+	tpLinkModel << ["LB120" : "(Cloud) TP-Link TunableWhite Bulb"]			//	LB120
 	//	Color Bulbs
 	tpLinkModel << ["KB130" : "(Cloud) TP-Link Color Bulb"]				//	KB130
 	tpLinkModel << ["LB130" : "(Cloud) TP-Link Color Bulb"]				//	LB130
