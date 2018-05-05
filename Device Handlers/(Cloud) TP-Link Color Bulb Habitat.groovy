@@ -36,6 +36,7 @@ metadata {
 		command "setModeNormal"
 		command "setModeCircadian"
         command "refresh"
+        command "poll"
 		attribute "bulbMode", "string"
 	}
 
@@ -46,10 +47,6 @@ metadata {
 	rates << ["30" : "Refresh every 30 minutes"]
 
 	preferences {
-//		if (installType == "Hub") {
-//			input("deviceIP", "text", title: "Device IP", required: true, displayDuringSetup: true)
-//			input("gatewayIP", "text", title: "Gateway IP", required: true, displayDuringSetup: true)
-//		}
 		input name: "lightTransTime", type: "number", title: "Lighting Transition Time (seconds)", options: rates, description: "0 to 60 seconds", required: false
 		input name: "refreshRate", type: "enum", title: "Refresh Rate", options: rates, description: "Select Refresh Rate", required: false
 	}
