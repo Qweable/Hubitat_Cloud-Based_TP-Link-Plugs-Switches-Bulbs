@@ -31,10 +31,10 @@ metadata {
 		capability "Sensor"
 		capability "Actuator"
         command "refresh"
+        command "poll"
 	}
 
 	def rates = [:]
-	rates << ["1" : "Refresh every minutes (Not Recommended)"]
 	rates << ["5" : "Refresh every 5 minutes"]
 	rates << ["10" : "Refresh every 10 minutes"]
 	rates << ["15" : "Refresh every 15 minutes"]
@@ -57,10 +57,6 @@ def updated() {
 def update() {
 	unschedule()
 	switch(refreshRate) {
-		case "1":
-			runEvery1Minute(refresh)
-			log.info "Refresh Scheduled for every minute"
-			break
 		case "5":
 			runEvery5Minutes(refresh)
 			log.info "Refresh Scheduled for every 5 minutes"
@@ -95,12 +91,16 @@ def off() {
 	sendCmdtoServer('{"system":{"set_relay_state":{"state": 0}}}', "deviceCommand", "commandResponse")
 }
 
+def poll() {
+	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "refreshResponse")
+}
+
 def refresh(){
 	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "refreshResponse")
 }
 
 def commandResponse(cmdResponse) {
-	refresh()
+	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "refreshResponse")
 }
 
 def refreshResponse(cmdResponse){
