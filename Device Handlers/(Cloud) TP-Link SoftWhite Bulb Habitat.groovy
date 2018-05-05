@@ -32,6 +32,7 @@ metadata {
 		capability "Sensor"
 		capability "Actuator"
         command "refresh"
+        command "poll"
 	}
 
 	def rates = [:]
@@ -100,6 +101,10 @@ def off() {
 def setLevel(percentage) {
 	percentage = percentage as int
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+}
+
+def poll(){
+	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
 def refresh(){
