@@ -28,9 +28,9 @@ definition(
 	author: "Dave Gutheinz",
 	description: "A Service Manager for the TP-Link devices connecting through the TP-Link Cloud",
 	category: "Convenience",
-	iconUrl: "http://ecx.images-amazon.com/images/I/51S8gO0bvZL._SL210_QL95_.png",
-	iconX2Url: "http://ecx.images-amazon.com/images/I/51S8gO0bvZL._SL210_QL95_.png",
-	iconX3Url: "http://ecx.images-amazon.com/images/I/51S8gO0bvZL._SL210_QL95_.png",
+	iconUrl: "",
+	iconX2Url: "",
+	iconX3Url: "",
 	singleInstance: true
 )
 
