@@ -21,6 +21,8 @@ primarily various users on GitHub.com.
 
 ===== History ============================================
 2018-05-02	Update to Version 2
+2018-07-16	Updated to change handler selection to
+		allow for product line growth.
 ========================================================*/
 definition(
 	name: "TP-Link Cloud Connect",
@@ -37,8 +39,6 @@ definition(
 preferences {
 	page(name: "cloudLogin")
 	page(name: "selectDevices")
-//	page(name: "cloudLogin", title: "TP-Link Cloud Login", nextPage:"", content:"cloudLogin", uninstall: true)
-//	page(name: "selectDevices", title: "Select TP-Link Devices", nextPage:"", content:"selectDevices", uninstall: true, install: true)
 }
 
 def setInitialStates() {
@@ -94,7 +94,6 @@ def cloudLogin() {
 
 //	----- SELECT DEVICES PAGE -----
 def selectDevices() {
-log.info "at selectDevices"
 	if (updateToken != "Add Devices") {
 		getToken()
 	}
@@ -170,41 +169,32 @@ def parseDevices(currentDevices) {
 }
 
 def addDevices() {
-	def tpLinkModel = [:]
-	//	Plug-Switch Devices (no energy monitor capability)
-	tpLinkModel << ["HS100" : "(Cloud) TP-Link Plug-Switch"]			//	HS100
-	tpLinkModel << ["HS103" : "(Cloud) TP-Link Plug-Switch"]			//	HS103
-	tpLinkModel << ["HS105" : "(Cloud) TP-Link Plug-Switch"]			//	HS105
-	tpLinkModel << ["HS200" : "(Cloud) TP-Link Plug-Switch"]			//	HS200
-	tpLinkModel << ["HS210" : "(Cloud) TP-Link Plug-Switch"]			//	HS210
-	tpLinkModel << ["KP100" : "(Cloud) TP-Link Plug-Switch"]			//	KP100
-	//	Dimming Plug Devices
-	tpLinkModel << ["HS220" : "(Cloud) TP-Link Dimming Switch"]			//	HS220
-	//	Energy Monitor Plugs
-	tpLinkModel << ["HS110" : "(Cloud) TP-Link Plug-Switch"]			//	HS110
-	tpLinkModel << ["HS115" : "(Cloud) TP-Link Plug-Switch"]			//	HS110
-	//	Soft White Bulbs
-	tpLinkModel << ["KB100" : "(Cloud) TP-Link SoftWhite Bulb"]			//	KB100
-	tpLinkModel << ["LB100" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB100
-	tpLinkModel << ["LB110" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB110
-	tpLinkModel << ["LB200" : "(Cloud) TP-Link SoftWhite Bulb"]			//	LB200
-	//	Tunable White Bulbs
-	tpLinkModel << ["LB120" : "(Cloud) TP-Link TunableWhite Bulb"]			//	LB120
-	//	Color Bulbs
-	tpLinkModel << ["KB130" : "(Cloud) TP-Link Color Bulb"]				//	KB130
-	tpLinkModel << ["LB130" : "(Cloud) TP-Link Color Bulb"]				//	LB130
-	tpLinkModel << ["LB230" : "(Cloud) TP-Link Color Bulb"]				//	LB230
-
 	def hub = location.hubs[0]
 	def hubId = hub.id
 	selectedDevices.each { dni ->
 		def isChild = getChildDevice(dni)
 		if (!isChild) {
 			def device = state.devices.find { it.value.deviceMac == dni }
-			def deviceModel = device.value.deviceModel.substring(0,5)
+            def tpLinkHandler = "(Cloud) TP-Link Plug-Switch"
+            def deviceType = device.value.deviceModel.substring(1,2)
+        	def deviceSeries = device.value.deviceModel.substring(2,4)
+            if (deviceType == "S" || deviceType == "P") {
+                if (deviceSeries == "22") {
+                    tpLinkHandler = "(Cloud) TP-Link Dimming Switch"
+                } else if (deviceSeries == "11") {
+                    tpLinkHandler = "(Cloud) TP-Link EnergyMonitor Plug"
+                }
+            } else if (deviceType == "B") {
+                tpLinkHandler = "(Cloud) TP-Link SoftWhite Bulb"
+                if (deviceSeries == "12") {
+                    tpLinkHandler = "(Cloud) TP-Link TunableWhite Bulb"
+                }else if (deviceSeries == "13") {
+                    tpLinkHandler = "(Cloud) TP-Link Color Bulb"
+                }
+            }
 			addChildDevice(
 				"davegut",
-				tpLinkModel["${deviceModel}"], 
+                tpLinkHandler,
 				device.value.deviceMac,
 				hubId, [
 					"label": device.value.alias,
@@ -222,7 +212,6 @@ def addDevices() {
 
 //	----- GET A NEW TOKEN FROM CLOUD -----
 def getToken() {
-log.info "at getToken"
 	def hub = location.hubs[0]
 	def cmdBody = [
 		method: "login",
