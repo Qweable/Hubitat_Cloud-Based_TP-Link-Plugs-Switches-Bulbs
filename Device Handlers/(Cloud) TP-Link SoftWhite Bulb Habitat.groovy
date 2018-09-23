@@ -1,4 +1,4 @@
-/*	TP Link Cloud SoftWhite Bulbs Device Driver, Hubitat Version 1
+/*	Kasa Cloud SoftWhite Bulbs Device Driver, Hubitat Version 3
 	Copyright 2018 Dave Gutheinz
 
 Licensed under the Apache License, Version 2.0(the "License");
@@ -20,20 +20,22 @@ is based upon open-source data on the TP-Link devices;
 primarily various users on GitHub.com.
 
 ===== History ============================================
-2018-05-02	Update to Version 2
+2018-09-30	Update to Version 3.  Adds capabilities and
+			equivalency with I/O from Generic Zigbee RGBW
+			bulbs.
 ========================================================*/
 
 metadata {
 	definition (name: "(Cloud) TP-Link SoftWhite Bulb",
 				namespace: "davegut",
 				author: "Dave Gutheinz") {
+		capability "Actuator"
+        capability "Refresh"
 		capability "Switch"
 		capability "Switch Level"
-		capability "Sensor"
-		capability "Actuator"
-        command "refresh"
-        command "poll"
+        capability "Light"
 	}
+
 
 	def rates = [:]
 	rates << ["5" : "Refresh every 5 minutes"]
@@ -41,9 +43,9 @@ metadata {
 	rates << ["15" : "Refresh every 15 minutes"]
 	rates << ["30" : "Refresh every 30 minutes"]
 
-	preferences {
-		input name: "lightTransTime", type: "number", title: "Lighting Transition Time (seconds)", options: rates, description: "0 to 60 seconds", required: false
-		input name: "refreshRate", type: "enum", title: "Refresh Rate", options: rates, description: "Select Refresh Rate", required: false
+    preferences {
+        input name: "transitionTime", type: "enum", description: "", title: "Transition time", options: [[500:"500ms"],[1000:"1s"],[1500:"1.5s"],[2000:"2s"],[5000:"5s"]], defaultValue: 1000
+        input name: "refreshRate", type: "enum", title: "Refresh Rate", options: rates, description: "Select Refresh Rate", required: false
 	}
 }
 
@@ -58,6 +60,8 @@ def updated() {
 
 def update() {
 	unschedule()
+    log.info "updated..."
+    log.info "Refresh rate set to ${transitionTime}"
 	switch(refreshRate) {
 		case "5":
 			runEvery5Minutes(refresh)
@@ -75,11 +79,6 @@ def update() {
 			runEvery30Minutes(refresh)
 			log.info "Refresh Scheduled for every 30 minutes"
 	}
-	if (lightTransTime >= 0 && lightTransTime <= 60) {
-		state.transTime = 1000 * lightTransTime
-	} else {
-		state.transTime = 5000
-    }
 	runIn(2, refresh)
 }
 
@@ -91,19 +90,27 @@ void uninstalled() {
 
 //	===== Basic Bulb Control/Status =====
 def on() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def off() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setLevel(percentage) {
 	percentage = percentage as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
-def poll(){
+def setLevel(percentage, rate) {
+//	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
+	percentage = percentage as int
+    rate = rate.toBigDecimal()
+    def scaledRate = (rate * 1000).toInteger()
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${scaledRate}}}}""", "deviceCommand", "commandResponse")
+}
+
+def poll() {
 	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
@@ -111,6 +118,7 @@ def refresh(){
 	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
+//	Parse the Bulb Return (only one response possible)
 def commandResponse(cmdResponse){
 	def status
 	def respType = cmdResponse.toString().substring(1,7)
@@ -129,11 +137,12 @@ def commandResponse(cmdResponse){
 	def level = status.brightness
 	log.info "$device.name $device.label: Power: ${onOff} / Brightness: ${level}%"
 	sendEvent(name: "switch", value: onOff)
+    if (onOff == "off") return
  	sendEvent(name: "level", value: level)
 }
 
 //	===== Send the Command =====
-private sendCmdtoServer(command, hubCommand, action){
+private sendCmdtoServer(command, hubCommand, action) {
 	def appServerUrl = getDataValue("appServerUrl")
 	def deviceId = getDataValue("deviceId")
 	def cmdResponse = parent.sendDeviceCmd(appServerUrl, deviceId, command)
@@ -147,20 +156,11 @@ private sendCmdtoServer(command, hubCommand, action){
 	} else {
 		sendEvent(name: "deviceError", value: "OK")
 	}
-	actionDirector(action, cmdResponse)
-}
-
-def actionDirector(action, cmdResponse) {
-	switch(action) {
-		case "commandResponse":
-			commandResponse(cmdResponse)
-			break
-		default:
-			log.info "Interface Error.  See SmartApp and Device error message."
-	}
+	commandResponse(cmdResponse)
 }
 
 //	===== Child / Parent Interchange =====
+//	Use Parent for Comms to provide single error handling with cloud.
 def syncAppServerUrl(newAppServerUrl) {
 	updateDataValue("appServerUrl", newAppServerUrl)
 		log.info "Updated appServerUrl for ${device.name} ${device.label}"
