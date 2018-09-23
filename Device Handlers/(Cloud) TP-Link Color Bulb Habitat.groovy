@@ -1,4 +1,4 @@
-/*	TP Link Cloud Color Bulbs Device Driver, Hubitat Version 1
+/*	Kasa Cloud Color Bulbs Device Driver, Hubitat Version 3
 	Copyright 2018 Dave Gutheinz
 
 Licensed under the Apache License, Version 2.0(the "License");
@@ -20,25 +20,30 @@ is based upon open-source data on the TP-Link devices;
 primarily various users on GitHub.com.
 
 ===== History ============================================
-2018-05-02	Update to Version 2
+2018-09-30	Update to Version 3.  Adds capabilities and
+			equivalency with I/O from Generic Zigbee RGBW
+			bulbs.
 ========================================================*/
 
 metadata {
 	definition (name: "(Cloud) TP-Link Color Bulb",
 				namespace: "davegut",
 				author: "Dave Gutheinz") {
+		capability "Actuator"
+		capability "Color Control"
+		capability "Color Temperature"
+        capability "Refresh"
 		capability "Switch"
 		capability "Switch Level"
-		capability "Sensor"
-		capability "Actuator"
-		capability "Color Temperature"
-		capability "Color Control"
-		command "setModeNormal"
-		command "setModeCircadian"
-        command "refresh"
-        command "poll"
-		attribute "bulbMode", "string"
+        capability "Light"
+        capability "ColorMode"
+
+        attribute "colorName", "string"
+         
+        command "toggleCircadianState"
+		attribute "circadianState", "string"
 	}
+
 
 	def rates = [:]
 	rates << ["5" : "Refresh every 5 minutes"]
@@ -46,9 +51,10 @@ metadata {
 	rates << ["15" : "Refresh every 15 minutes"]
 	rates << ["30" : "Refresh every 30 minutes"]
 
-	preferences {
-		input name: "lightTransTime", type: "number", title: "Lighting Transition Time (seconds)", options: rates, description: "0 to 60 seconds", required: false
-		input name: "refreshRate", type: "enum", title: "Refresh Rate", options: rates, description: "Select Refresh Rate", required: false
+    preferences {
+        input name: "transitionTime", type: "enum", description: "", title: "Transition time", options: [[500:"500ms"],[1000:"1s"],[1500:"1.5s"],[2000:"2s"],[5000:"5s"]], defaultValue: 1000
+        input name: "hiRezHue", type: "bool", title: "Enable Hue in degrees (0-360)", defaultValue: false
+        input name: "refreshRate", type: "enum", title: "Refresh Rate", options: rates, description: "Select Refresh Rate", required: false
 	}
 }
 
@@ -63,6 +69,9 @@ def updated() {
 
 def update() {
 	unschedule()
+    log.info "updated..."
+    log.info "Hue in degrees is: ${hiRezHue == true}"
+    log.info "Transition time set to ${transitionTime}"
 	switch(refreshRate) {
 		case "5":
 			runEvery5Minutes(refresh)
@@ -80,11 +89,6 @@ def update() {
 			runEvery30Minutes(refresh)
 			log.info "Refresh Scheduled for every 30 minutes"
 	}
-	if (lightTransTime >= 0 && lightTransTime <= 60) {
-		state.transTime = 1000 * lightTransTime
-	} else {
-		state.transTime = 5000
-    }
 	runIn(2, refresh)
 }
 
@@ -96,16 +100,24 @@ void uninstalled() {
 
 //	===== Basic Bulb Control/Status =====
 def on() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":1,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def off() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setLevel(percentage) {
 	percentage = percentage as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${state.transTime}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+}
+
+def setLevel(percentage, rate) {
+//	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
+	percentage = percentage as int
+    rate = rate.toBigDecimal()
+    def scaledRate = (rate * 1000).toInteger()
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${scaledRate}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setColorTemperature(kelvin) {
@@ -113,29 +125,31 @@ def setColorTemperature(kelvin) {
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}""", "deviceCommand", "commandResponse")
 }
 
-def setModeNormal() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"normal"}}}""", "deviceCommand", "commandResponse")
+def toggleCircadianState() {
+    def cirState = device.currentValue("circadianState")
+    if (cirState == "normal") {
+        cirState = "circadian"
+    }else {
+        cirState = "normal"
+    }
+    sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"${cirState}"}}}""", "deviceCommand", "commandResponse")
 }
 
-def setModeCircadian() {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"circadian"}}}""", "deviceCommand", "commandResponse")
-}
-
-//def setColor(map color) {
 def setColor(color) {
-	def hue = color.hue * 3.6 as int
+    def hue = color.hue.toInteger()
+    if (!hiRezHue) hue = (hue * 3.6) as int
 	def saturation = color.saturation as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"saturation":${saturation}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"saturation":${saturation},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setHue(hue) {
-	hue = hue * 3.6 as int
-//	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"saturation":${saturation}}}}""", "deviceCommand", "commandResponse")
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue}}}}""", "deviceCommand", "commandResponse")
+    hue = hue.toInteger()
+    if (!hiRezHue) hue = (hue * 3.6) as int
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setSaturation(saturation) {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"saturation":${saturation}}}}""", "deviceCommand", "commandResponse")
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"saturation":${saturation},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def poll() {
@@ -146,6 +160,7 @@ def refresh(){
 	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
+//	Parse the Bulb Return (only one response possible)
 def commandResponse(cmdResponse){
 	def status
 	def respType = cmdResponse.toString().substring(1,7)
@@ -168,23 +183,82 @@ def commandResponse(cmdResponse){
 	def saturation = status.saturation
 	log.info "$device.name $device.label: Power: ${onOff} / Brightness: ${level}% / Mode: ${mode} / Color Temp: ${color_temp}K / Hue: ${hue} / Saturation: ${saturation}"
 	sendEvent(name: "switch", value: onOff)
+    if (onOff == "off") return
  	sendEvent(name: "level", value: level)
-	sendEvent(name: "bulbMode", value: mode)
+	sendEvent(name: "circadianState", value: mode)
 	sendEvent(name: "colorTemperature", value: color_temp)
 	sendEvent(name: "hue", value: hue)
 	sendEvent(name: "saturation", value: saturation)
+    if (color_temp.toInteger() == 0) {
+        setGenericName(hue)
+    } else {
+        setGenericTempName(color_temp)
+    }
+}
+
+def setGenericTempName(temp){
+    def value = temp.toInteger()
+    if (value < 2000) return
+    def genericName
+    if (value < 2400) genericName = "Sunrise"
+    else if (value < 2800) genericName = "Incandescent"
+    else if (value < 3300) genericName = "Soft White"
+    else if (value < 3500) genericName = "Warm White"
+    else if (value < 4150) genericName = "Moonlight"
+    else if (value <= 5000) genericName = "Horizon"
+    else if (value < 5500) genericName = "Daylight"
+    else if (value < 6000) genericName = "Electronic"
+    else if (value <= 6500) genericName = "Skylight"
+    else if (value < 20000) genericName = "Polar"
+    def descriptionText = "${device.getDisplayName()} color is ${genericName}"
+	log.info "${descriptionText}"
+    sendEvent(name: "colorName", value: genericName ,descriptionText: descriptionText)
+    descriptionText = "${device.getDisplayName()} Color Mode is CT"
+	log.info "${descriptionText}"
+    sendEvent(name: "colorMode", value: "CT" ,descriptionText: descriptionText)
+}
+
+def setGenericName(hue){
+    def colorName
+    hue = hue.toInteger()
+    switch (hue.toInteger()){
+        case 0..15: colorName = "Red"
+            break
+        case 16..45: colorName = "Orange"
+            break
+        case 46..75: colorName = "Yellow"
+            break
+        case 76..105: colorName = "Chartreuse"
+            break
+        case 106..135: colorName = "Green"
+            break
+        case 136..165: colorName = "Spring"
+            break
+        case 166..195: colorName = "Cyan"
+            break
+        case 196..225: colorName = "Azure"
+            break
+        case 226..255: colorName = "Blue"
+            break
+        case 256..285: colorName = "Violet"
+            break
+        case 286..315: colorName = "Magenta"
+            break
+        case 316..345: colorName = "Rose"
+            break
+        case 346..360: colorName = "Red"
+            break
+    }
+    def descriptionText = "${device.getDisplayName()} color is ${colorName}"
+	log.info "${descriptionText}"
+    sendEvent(name: "colorName", value: colorName ,descriptionText: descriptionText)
+    descriptionText = "${device.getDisplayName()} Color Mode is RGB"
+	log.info "${descriptionText}"
+    sendEvent(name: "colorMode", value: "RGB" ,descriptionText: descriptionText)
 }
 
 //	===== Send the Command =====
 private sendCmdtoServer(command, hubCommand, action) {
-//	if (state.installType == "Cloud") {
-		sendCmdtoCloud(command, hubCommand, action)
-//	} else {
-//		sendCmdtoHub(command, hubCommand, action)
-//	}
-}
-
-private sendCmdtoCloud(command, hubCommand, action){
 	def appServerUrl = getDataValue("appServerUrl")
 	def deviceId = getDataValue("deviceId")
 	def cmdResponse = parent.sendDeviceCmd(appServerUrl, deviceId, command)
@@ -198,51 +272,11 @@ private sendCmdtoCloud(command, hubCommand, action){
 	} else {
 		sendEvent(name: "deviceError", value: "OK")
 	}
-	actionDirector(action, cmdResponse)
-}
-
-private sendCmdtoHub(command, hubCommand, action){
-}
-/*	NEED UPDATE TO ELIMINATE HUB ACTION.
-private sendCmdtoHub(command, hubCommand, action){
-	def headers = [:] 
-	headers.put("HOST", "$gatewayIP:8082")	//	Same as on Hub.
-	headers.put("tplink-iot-ip", deviceIP)
-	headers.put("tplink-command", command)
-	headers.put("action", action)
-	headers.put("command", hubCommand)
-	sendHubCommand(new physicalgraph.device.HubAction([
-		headers: headers],
-		device.deviceNetworkId,
-		[callback: hubResponseParse]
-	))
-}
-
-def hubResponseParse(response) {
-	def action = response.headers["action"]
-	def cmdResponse = parseJson(response.headers["cmd-response"])
-	if (cmdResponse == "TcpTimeout") {
-		log.error "$device.name $device.label: Communications Error"
-		sendEvent(name: "switch", value: "offline", descriptionText: "ERROR - OffLine in hubResponseParse")
-		sendEvent(name: "deviceError", value: "TCP Timeout in Hub")
-	} else {
-		actionDirector(action, cmdResponse)
-		sendEvent(name: "deviceError", value: "OK")
-	}
-}
-*/
-
-def actionDirector(action, cmdResponse) {
-	switch(action) {
-		case "commandResponse":
-			commandResponse(cmdResponse)
-			break
-		default:
-			log.info "Interface Error.  See SmartApp and Device error message."
-	}
+	commandResponse(cmdResponse)
 }
 
 //	===== Child / Parent Interchange =====
+//	Use Parent for Comms to provide single error handling with cloud.
 def syncAppServerUrl(newAppServerUrl) {
 	updateDataValue("appServerUrl", newAppServerUrl)
 		log.info "Updated appServerUrl for ${device.name} ${device.label}"
