@@ -68,10 +68,7 @@ def updated() {
 def update() {
 	unschedule()
     log.info "updated..."
-    log.info "Refresh rate set to ${transitionTime}"
-    descriptionText = "${device.getDisplayName()} Color Mode is CT"
-	log.info "${descriptionText}"
-    sendEvent(name: "colorMode", value: "CT" ,descriptionText: descriptionText)
+    log.info "Transition time set to ${transitionTime}"
 	switch(refreshRate) {
 		case "5":
 			runEvery5Minutes(refresh)
@@ -107,12 +104,19 @@ def off() {
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
+def setLevel() {
+	log.error "$device.name $device.label: Null entries in Set Level"
+}
+
 def setLevel(percentage) {
-	percentage = percentage as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+    setLevel(percentage, transitionTime)
 }
 
 def setLevel(percentage, rate) {
+    if (percentage < 0 || percentage > 100) {
+        log.error "$device.name $device.label: Entered brightness is above 100%"
+        return
+    }
 //	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
 	percentage = percentage as int
     rate = rate.toBigDecimal()
@@ -121,7 +125,12 @@ def setLevel(percentage, rate) {
 }
 
 def setColorTemperature(kelvin) {
+    if (kelvin == null) kelvin = state.lastColorTemp
 	kelvin = kelvin as int
+    if (kelvin < 2700 || kelvin > 6500) {
+        log.error "$device.name $device.label: Entered color temperature out of range!"
+        return
+    }
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}""", "deviceCommand", "commandResponse")
 }
 
@@ -133,10 +142,6 @@ def toggleCircadianState() {
         cirState = "normal"
     }
     sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"${cirState}"}}}""", "deviceCommand", "commandResponse")
-}
-
-def poll() {
-	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
 def refresh(){
@@ -167,12 +172,13 @@ def commandResponse(cmdResponse){
     if (onOff == "off") return
  	sendEvent(name: "level", value: level)
 	sendEvent(name: "circadianState", value: mode)
-    setGenericTempName(color_temp)
+	sendEvent(name: "colorTemperature", value: color_temp)
+    state.lastColorTemp = color_temp
+    setColorTempData(color_temp)
 }
 
-def setGenericTempName(temp){
+def setColorTempData(temp){
     def value = temp.toInteger()
-    if (value < 2000) return
     def genericName
     if (value < 2400) genericName = "Sunrise"
     else if (value < 2800) genericName = "Incandescent"
@@ -184,6 +190,9 @@ def setGenericTempName(temp){
     else if (value < 6000) genericName = "Electronic"
     else if (value <= 6500) genericName = "Skylight"
     else if (value < 20000) genericName = "Polar"
+	descriptionText = "${device.getDisplayName()} Color Mode is CT"
+	log.info "${descriptionText}"
+	sendEvent(name: "colorMode", value: "CT" ,descriptionText: descriptionText)
     def descriptionText = "${device.getDisplayName()} color is ${genericName}"
 	log.info "${descriptionText}"
     sendEvent(name: "colorName", value: genericName ,descriptionText: descriptionText)
