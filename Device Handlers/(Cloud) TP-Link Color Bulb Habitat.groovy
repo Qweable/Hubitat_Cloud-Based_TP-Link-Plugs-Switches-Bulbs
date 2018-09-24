@@ -120,11 +120,9 @@ def setLevel(percentage, rate) {
         log.error "$device.name $device.label: Entered brightness is above 100%"
         return
     }
-//	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
 	percentage = percentage as int
-    rate = rate.toBigDecimal()
-    def scaledRate = (rate * 1000).toInteger()
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${scaledRate}}}}""", "deviceCommand", "commandResponse")
+    rate = rate.toInteger()
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${rate}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setColorTemperature(kelvin) {
