@@ -108,11 +108,16 @@ def off() {
 }
 
 def setLevel(percentage) {
-	percentage = percentage as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+//	percentage = percentage as int
+    setLevel(percentage, transitionTime)
+//	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def setLevel(percentage, rate) {
+    if (percentage < 0 || percentage > 100) {
+        log.error "$device.name $device.label: Entered brightness is above 100%"
+        return
+    }
 //	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
 	percentage = percentage as int
     rate = rate.toBigDecimal()
@@ -122,6 +127,10 @@ def setLevel(percentage, rate) {
 
 def setColorTemperature(kelvin) {
 	kelvin = kelvin as int
+    if (kelvin < 2500 || kelvin > 9000) {
+        log.error "$device.name $device.label: Entered color temperature out of range!"
+        return
+    }
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp": ${kelvin},"hue":0,"saturation":0}}}""", "deviceCommand", "commandResponse")
 }
 
@@ -135,21 +144,26 @@ def toggleCircadianState() {
     sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"mode":"${cirState}"}}}""", "deviceCommand", "commandResponse")
 }
 
-def setColor(color) {
-    def hue = color.hue.toInteger()
-    if (!hiRezHue) hue = (hue * 3.6) as int
-	def saturation = color.saturation as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"saturation":${saturation},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
-}
-
 def setHue(hue) {
-    hue = hue.toInteger()
-    if (!hiRezHue) hue = (hue * 3.6) as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+    saturation = state.lastSaturation
+    setColor([hue: hue, saturation: saturation])
 }
 
 def setSaturation(saturation) {
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"saturation":${saturation},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+    hue = state.lastHue
+    setColor([hue: hue, saturation: saturation])
+}
+
+def setColor(color) {
+    def hue = color.hue.toInteger()
+//  if lowRezHue, adjust hue to 0...360
+    if (!hiRezHue) hue = (hue * 3.6) as int
+	def saturation = color.saturation as int
+    if (hue < 0 || hue > 360 || saturation < 0 || saturation > 100) {
+        log.error "$device.name $device.label: Entered hue or saturation out of range!"
+        return
+    }
+	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"color_temp":0,"hue":${hue},"saturation":${saturation},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
 def poll() {
@@ -180,6 +194,8 @@ def commandResponse(cmdResponse){
 	def mode = status.mode
 	def color_temp = status.color_temp
 	def hue = status.hue
+//	If input is lowRezHue, adjust hue to 0...100.
+    if (!hiRezHue) hue = (hue / 3.6) as int
 	def saturation = status.saturation
 	log.info "$device.name $device.label: Power: ${onOff} / Brightness: ${level}% / Mode: ${mode} / Color Temp: ${color_temp}K / Hue: ${hue} / Saturation: ${saturation}"
 	sendEvent(name: "switch", value: onOff)
@@ -189,16 +205,26 @@ def commandResponse(cmdResponse){
 	sendEvent(name: "colorTemperature", value: color_temp)
 	sendEvent(name: "hue", value: hue)
 	sendEvent(name: "saturation", value: saturation)
+/*  Bulb sets color temp to 0 if either hue or saturation > 0
+	If color_temp > 0, hue and saturation are set to 0.*/
     if (color_temp.toInteger() == 0) {
-        setGenericName(hue)
+        state.lastHue = hue
+        state.lastSaturation = saturation
+	    descriptionText = "${device.getDisplayName()} Color Mode is RGB"
+		log.info "${descriptionText}"
+ 	    sendEvent(name: "colorMode", value: "RGB" ,descriptionText: descriptionText)
+        setRgbData(hue)
     } else {
-        setGenericTempName(color_temp)
+        state.lastColorTemp = color_temp
+	    descriptionText = "${device.getDisplayName()} Color Mode is CT"
+		log.info "${descriptionText}"
+	    sendEvent(name: "colorMode", value: "CT" ,descriptionText: descriptionText)
+        setColorTempData(color_temp)
     }
 }
 
-def setGenericTempName(temp){
+def setColorTempData(temp){
     def value = temp.toInteger()
-    if (value < 2000) return
     def genericName
     if (value < 2400) genericName = "Sunrise"
     else if (value < 2800) genericName = "Incandescent"
@@ -213,12 +239,9 @@ def setGenericTempName(temp){
     def descriptionText = "${device.getDisplayName()} color is ${genericName}"
 	log.info "${descriptionText}"
     sendEvent(name: "colorName", value: genericName ,descriptionText: descriptionText)
-    descriptionText = "${device.getDisplayName()} Color Mode is CT"
-	log.info "${descriptionText}"
-    sendEvent(name: "colorMode", value: "CT" ,descriptionText: descriptionText)
 }
 
-def setGenericName(hue){
+def setRgbData(hue){
     def colorName
     hue = hue.toInteger()
     switch (hue.toInteger()){
@@ -252,9 +275,6 @@ def setGenericName(hue){
     def descriptionText = "${device.getDisplayName()} color is ${colorName}"
 	log.info "${descriptionText}"
     sendEvent(name: "colorName", value: colorName ,descriptionText: descriptionText)
-    descriptionText = "${device.getDisplayName()} Color Mode is RGB"
-	log.info "${descriptionText}"
-    sendEvent(name: "colorMode", value: "RGB" ,descriptionText: descriptionText)
 }
 
 //	===== Send the Command =====
