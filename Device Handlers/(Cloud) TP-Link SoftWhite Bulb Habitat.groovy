@@ -35,8 +35,7 @@ metadata {
 		capability "Switch Level"
         capability "Light"
 	}
-
-
+    
 	def rates = [:]
 	rates << ["5" : "Refresh every 5 minutes"]
 	rates << ["10" : "Refresh every 10 minutes"]
@@ -61,7 +60,7 @@ def updated() {
 def update() {
 	unschedule()
     log.info "updated..."
-    log.info "Refresh rate set to ${transitionTime}"
+    log.info "Transition time set to ${transitionTime}"
 	switch(refreshRate) {
 		case "5":
 			runEvery5Minutes(refresh)
@@ -97,21 +96,24 @@ def off() {
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"on_off":0,"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
 }
 
+def setLevel() {
+	log.error "$device.name $device.label: Null entries in Set Level"
+}
+
 def setLevel(percentage) {
-	percentage = percentage as int
-	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${transitionTime}}}}""", "deviceCommand", "commandResponse")
+    setLevel(percentage, transitionTime)
 }
 
 def setLevel(percentage, rate) {
+    if (percentage < 0 || percentage > 100) {
+        log.error "$device.name $device.label: Entered brightness is above 100%"
+        return
+    }
 //	Rate is anticiated in seconds.  Convert to msec for Kasa Bulbs
 	percentage = percentage as int
     rate = rate.toBigDecimal()
     def scaledRate = (rate * 1000).toInteger()
 	sendCmdtoServer("""{"smartlife.iot.smartbulb.lightingservice":{"transition_light_state":{"ignore_default":1,"on_off":1,"brightness":${percentage},"transition_period":${scaledRate}}}}""", "deviceCommand", "commandResponse")
-}
-
-def poll() {
-	sendCmdtoServer('{"system":{"get_sysinfo":{}}}', "deviceCommand", "commandResponse")
 }
 
 def refresh(){
@@ -135,6 +137,8 @@ def commandResponse(cmdResponse){
 		status = status.dft_on_state
 	}
 	def level = status.brightness
+	def mode = status.mode
+	def color_temp = status.color_temp
 	log.info "$device.name $device.label: Power: ${onOff} / Brightness: ${level}%"
 	sendEvent(name: "switch", value: onOff)
     if (onOff == "off") return
