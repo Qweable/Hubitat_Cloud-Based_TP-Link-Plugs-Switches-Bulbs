@@ -127,6 +127,7 @@ def setLevel(percentage, rate) {
 
 def setColorTemperature(kelvin) {
     if (kelvin == null) kelvin = state.lastColorTemp
+    if (kelvin == 2200) kelvin = 2500   //  Accommodate Amazon Warm white
 	kelvin = kelvin as int
     if (kelvin < 2500 || kelvin > 9000) {
         log.error "$device.name $device.label: Entered color temperature out of range!"
